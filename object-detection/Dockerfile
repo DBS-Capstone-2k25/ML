@@ -7,23 +7,36 @@ FROM python:3.10-slim
 WORKDIR /code
 
 # --- Tahap 3: Instalasi Dependensi ---
-# Menyalin file requirements.txt terlebih dahulu untuk optimasi cache Docker
+
+# !! BAGIAN BARU !!
+# Instal dependensi level sistem operasi yang dibutuhkan oleh OpenCV dan dependensi lainnya
+# Ini untuk memperbaiki error "ImportError: libGL.so.1" dan "libgthread-2.0.so.0"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-glx \
+    libglib2.0-0 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip terlebih dahulu
+RUN pip install --upgrade pip
+
+# Menyalin file requirements.txt
 COPY requirements.txt .
 
 # Menjalankan instalasi pustaka dari requirements.txt
-# --no-cache-dir digunakan untuk menjaga ukuran image tetap kecil
-RUN  pip install --default-timeout=100 --no-cache-dir -r requirements.txt
+RUN pip install \
+    --default-timeout=60 \
+    --no-cache-dir \
+    -r requirements.txt
 
-# --- Tahap 4: Menyalin Kode Aplikasi ---
-# Menyalin direktori 'app' yang berisi logika utama
+# --- Tahap 4: Membuat Pengguna Non-Root ---
+RUN useradd -ms /bin/bash appuser
+
+# --- Tahap 5: Menyalin Kode Aplikasi ---
 COPY ./app /code/app
-# Menyalin direktori 'model' yang berisi file best.onnx
 COPY ./model /code/model
+RUN chown -R appuser:appuser /code
 
-# --- Tahap 5: Menjalankan Aplikasi ---
-# Memberi tahu Docker bahwa container akan berjalan di port 8000
+# --- Tahap 6: Menjalankan Aplikasi sebagai Pengguna Non-Root ---
+USER appuser
 EXPOSE 8000
-
-# Perintah default untuk menjalankan aplikasi saat container dimulai
-# --host 0.0.0.0 membuat server dapat diakses dari luar container
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
