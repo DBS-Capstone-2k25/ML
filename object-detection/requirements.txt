@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+ultralytics==8.3.63
+supervision
+python-multipart
+Pillow
+torch==2.6.0
+onnx
+onnxruntime
