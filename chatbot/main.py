@@ -9,7 +9,7 @@ import os
 # Nama base model yang Anda gunakan saat training
 BASE_MODEL_NAME = "Qwen/Qwen2-7B-Instruct"
 # Path ke folder yang berisi adapter LoRA dan tokenizer Anda
-ADAPTER_PATH = "./model_files"
+ADAPTER_PATH = "./qwen_chatbot_huggingface_space"
 
 # --- Inisialisasi Aplikasi FastAPI ---
 app = FastAPI()
