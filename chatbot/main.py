@@ -4,31 +4,51 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 import os
-
 # --- Konfigurasi ---
-# Nama base model yang Anda gunakan saat training
 BASE_MODEL_NAME = "Qwen/Qwen2-7B-Instruct"
-# Path ke folder yang berisi adapter LoRA dan tokenizer Anda
+# Pastikan path ini sesuai dengan nama folder Anda
 ADAPTER_PATH = "./qwen_chatbot_huggingface_space"
 
 # --- Inisialisasi Aplikasi FastAPI ---
 app = FastAPI()
 
-# --- Memuat Model dan Tokenizer saat Aplikasi Dimulai ---
-# Ini akan memakan waktu dan memori, dan hanya dijalankan sekali.
+# --- Global variables untuk model dan tokenizer ---
+model = None
+tokenizer = None
+
+# --- Blok Pemuatan Model saat Startup ---
 try:
+    # --- BLOK DEBUGGING UNTUK MEMASTIKAN FILE ADA ---
+    print("--- Memulai proses debugging path ---")
+    print(f"Mencari direktori di path: {ADAPTER_PATH}")
+    if os.path.isdir(ADAPTER_PATH):
+        print(f"✅ SUKSES: Direktori '{ADAPTER_PATH}' ditemukan.")
+        try:
+            file_list = os.listdir(ADAPTER_PATH)
+            print(f"Isi direktori: {file_list}")
+            # Cek keberadaan file krusial
+            if "adapter_model.safetensors" in file_list and "tokenizer.json" in file_list:
+                print("✅ SUKSES: File 'adapter_model.safetensors' dan 'tokenizer.json' terdeteksi.")
+            else:
+                print("❌ PERINGATAN: File model atau tokenizer krusial tidak ditemukan di dalam direktori!")
+        except Exception as e:
+            print(f"❌ ERROR: Tidak bisa membaca isi direktori: {e}")
+    else:
+        print(f"❌ FATAL: Direktori '{ADAPTER_PATH}' TIDAK DITEMUKAN.")
+        # Kita bisa hentikan proses lebih awal jika mau, tapi kita biarkan lanjut agar error utama tertangkap
+    print("--- Selesai proses debugging path ---")
+    # ---------------------------------------------------
+
     print("Memuat base model...")
-    # Muat base model dalam 4-bit untuk efisiensi memori
     base_model = AutoModelForCausalLM.from_pretrained(
         BASE_MODEL_NAME,
         load_in_4bit=True,
         torch_dtype=torch.float16,
-        device_map="auto",  # Otomatis menempatkan model di GPU jika tersedia
+        device_map="auto",
     )
     print("Base model dimuat.")
 
     print(f"Memuat adapter LoRA dari {ADAPTER_PATH}...")
-    # Gabungkan base model dengan adapter LoRA Anda
     model = PeftModel.from_pretrained(base_model, ADAPTER_PATH)
     print("Adapter LoRA dimuat dan digabungkan.")
 
@@ -42,39 +62,32 @@ try:
 
 except Exception as e:
     print(f"Error saat memuat model: {e}")
-    # Jika model gagal dimuat, aplikasi tidak dapat berjalan
     model = None
     tokenizer = None
 
-# --- Mendefinisikan Format Input API ---
+# --- Definisi Endpoint (tetap sama seperti sebelumnya) ---
 class ChatRequest(BaseModel):
     prompt: str
-    max_new_tokens: int = 300 # Memberi default value
+    max_new_tokens: int = 300
 
-# --- Endpoint untuk Health Check ---
 @app.get("/")
 def read_root():
     return {"status": "Model API is running"}
 
-# --- Endpoint Utama untuk Chat ---
 @app.post("/chat")
 async def generate_chat_response(request: ChatRequest):
     if not model or not tokenizer:
-        raise HTTPException(status_code=503, detail="Model is not available or failed to load.")
-
+        # Pesan ini akan muncul jika blok try-except di atas gagal
+        raise HTTPException(status_code=503, detail="Model is not available or failed to load. Check logs for details.")
+    # ... sisa kode endpoint tetap sama ...
     try:
-        # Format input sesuai dengan chat template Qwen2
         messages = [{"role": "user", "content": request.prompt}]
         prompt_template = tokenizer.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True
         )
-
-        # Tokenisasi input
         inputs = tokenizer(prompt_template, return_tensors="pt").to(model.device)
-
-        # Generate respons dari model
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
@@ -85,12 +98,8 @@ async def generate_chat_response(request: ChatRequest):
                 pad_token_id=tokenizer.pad_token_id,
                 eos_token_id=tokenizer.eos_token_id,
             )
-
-        # Decode output menjadi teks
         response_ids = outputs[0][inputs.input_ids.shape[-1]:]
         response_text = tokenizer.decode(response_ids, skip_special_tokens=True).strip()
-
         return {"response": response_text}
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred during generation: {e}")
