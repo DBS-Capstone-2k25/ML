@@ -1,29 +1,46 @@
-# Gunakan base image resmi dari NVIDIA dengan CUDA 12.1, cocok untuk PyTorch
-FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+# ===================================================================
+#  TAHAP 1: BUILDER - Tahap untuk menginstall semua dependensi
+# ===================================================================
+# Menggunakan base image Python resmi yang ringan (bukan CUDA)
+FROM python:3.10-slim as builder
 
-# Hindari prompt interaktif saat instalasi
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install Python 3.10 dan pip
-RUN apt-get update && apt-get install -y \
-    python3.10 \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set direktori kerja di dalam container
+# Menetapkan direktori kerja di dalam container
 WORKDIR /app
 
-# Salin file requirements terlebih dahulu untuk caching
+# Menyalin file requirements terlebih dahulu untuk memanfaatkan caching Docker.
+# Build tidak akan menginstall ulang dependensi jika file ini tidak berubah.
 COPY requirements.txt .
 
-# Install semua dependensi Python
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Menginstall dependensi dari requirements.txt
+# --no-cache-dir membuat image sedikit lebih kecil
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Salin semua file proyek (kode dan model) ke dalam container
+# ===================================================================
+#  TAHAP 2: FINAL - Tahap untuk menjalankan aplikasi
+# ===================================================================
+# Memulai lagi dari base image yang bersih dan kecil untuk produksi
+FROM python:3.10-slim
+
+# Menetapkan direktori kerja
+WORKDIR /app
+
+# Membuat user non-root bernama "appuser" untuk keamanan.
+# Menjalankan container sebagai root adalah praktik yang buruk.
+RUN useradd --system --create-home appuser
+USER appuser
+
+# Menyalin dependensi yang sudah ter-install dari tahap 'builder'
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Menyalin semua file dari direktori Anda ke dalam direktori /app di container.
+# Ini termasuk main.py, requirements.txt, dan folder model 'qwen_chatbot_...'.
 COPY . .
 
-# Beritahu Docker port mana yang akan digunakan oleh aplikasi
+# Memberitahu Cloud Run bahwa container akan menerima traffic di port 8080
 EXPOSE 8080
 
-# Perintah untuk menjalankan server FastAPI saat container dimulai
+# Perintah untuk menjalankan server aplikasi saat container dimulai.
+# Perintah ini akan menjalankan file main.py Anda menggunakan uvicorn.
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
