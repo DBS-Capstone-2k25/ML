@@ -1,5 +1,9 @@
 fastapi
 uvicorn
+pydantic
+torch --extra-index-url https://download.pytorch.org/whl/cu121
 transformers
-torch
 peft
+accelerate
+bitsandbytes
+scipy
