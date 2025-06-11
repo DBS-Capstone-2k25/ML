@@ -41,10 +41,7 @@ try:
 
     print("Memuat base model...")
     base_model = AutoModelForCausalLM.from_pretrained(
-        BASE_MODEL_NAME,
-        load_in_4bit=True,
-        torch_dtype=torch.float16,
-        device_map="auto",
+        BASE_MODEL_NAME
     )
     print("Base model dimuat.")
 
