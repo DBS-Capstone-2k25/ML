@@ -1,8 +1,6 @@
 fastapi
-uvicorn
-pydantic
-torch --index-url https://download.pytorch.org/whl/cpu
+uvicorn[standard]
+torch
 transformers
 peft
 accelerate
-scipy

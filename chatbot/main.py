@@ -1,134 +1,131 @@
+# main.py
+
+import torch
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
+import uvicorn
 import os
-import traceback
 
-# --- Konfigurasi ---
-# Nama base model dari Hugging Face
-BASE_MODEL_NAME = "Qwen/Qwen2-7B-Instruct"
+# --- 1. Konfigurasi ---
+# Path ini harus sesuai dengan struktur folder proyek Anda.
+# Pastikan Anda menempatkan folder hasil training di direktori yang sama dengan file main.py ini.
+BASE_MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
+ADAPTER_PATH = "./qwen_1.5B_chatbot_p100_final"  # GANTI NAMA INI SESUAI NAMA FOLDER ANDA
 
-# Path LOKAL di dalam container tempat adapter LoRA Anda berada.
-# Path ini harus sesuai dengan yang ada di Dockerfile Anda (hasil dari 'COPY . .')
-ADAPTER_PATH = "./qwen_chatbot_huggingface_space"
-
-# --- Inisialisasi Aplikasi FastAPI ---
+# --- 2. Inisialisasi Aplikasi FastAPI ---
 app = FastAPI(
-    title="Qwen2 Chatbot API",
-    description="API untuk berinteraksi dengan model Qwen2-7B yang disesuaikan dengan LoRA.",
-    version="1.0.0",
+    title="Chatbot Sampah API",
+    description="API untuk berinteraksi dengan model LLM yang di-fine-tune untuk pengetahuan tentang sampah.",
+    version="1.0.0"
 )
 
-# --- Variabel Global untuk Model dan Tokenizer ---
-# Dibiarkan None pada awalnya, akan diisi saat startup
+# --- 3. Pemuatan Model (Hanya dijalankan sekali saat startup) ---
+# Variabel global untuk menampung model dan tokenizer agar bisa diakses oleh endpoint
 model = None
 tokenizer = None
 
-# --- Blok Pemuatan Model saat Aplikasi FastAPI Dimulai ---
-# Ini adalah bagian paling kritis yang telah diperbaiki.
 @app.on_event("startup")
 def load_model():
+    """
+    Fungsi ini akan dijalankan sekali saat aplikasi FastAPI dimulai.
+    Tugasnya adalah memuat model dan tokenizer ke dalam memori.
+    """
     global model, tokenizer
-
-    # Menggunakan try-except untuk menangkap error apa pun selama pemuatan
-    # dan mencetaknya ke log Cloud Run untuk kemudahan debugging.
+    
+    # Menggunakan CPU karena ini adalah target deployment akhir kita
+    device = "cpu"
+    print(f"--- Memulai Pemuatan Model pada Perangkat: {device} ---")
+    
     try:
-        print("--- Memulai proses pemuatan model untuk lingkungan CPU ---")
-
-        # Langkah 1: Memastikan direktori adapter ada
-        if not os.path.isdir(ADAPTER_PATH):
-            print(f"❌ FATAL: Direktori adapter '{ADAPTER_PATH}' tidak ditemukan. Pastikan nama folder sudah benar dan tercopy ke dalam container.")
-            raise RuntimeError(f"Adapter path not found: {ADAPTER_PATH}")
-        else:
-             print(f"✅ Direktori adapter '{ADAPTER_PATH}' ditemukan.")
-
-        # Langkah 2: Memuat base model dengan konfigurasi untuk CPU
-        # PERBAIKAN: Menghapus `load_in_4bit`, `torch_dtype`, dan mengubah `device_map` ke "cpu"
-        print(f"Memuat base model '{BASE_MODEL_NAME}'...")
+        # Memuat tokenizer dari folder lokal
+        print(f"Memuat tokenizer dari: {ADAPTER_PATH}...")
+        tokenizer = AutoTokenizer.from_pretrained(ADAPTER_PATH, trust_remote_code=True)
+        
+        # Memuat base model untuk CPU
+        print(f"Memuat base model (CPU mode): {BASE_MODEL_NAME}...")
         base_model = AutoModelForCausalLM.from_pretrained(
             BASE_MODEL_NAME,
-            device_map="cpu",  # <-- WAJIB: Memaksa model untuk dimuat dan berjalan di CPU
+            torch_dtype=torch.float32, # float32 adalah standar yang stabil untuk CPU
+            trust_remote_code=True
         )
-        print("✅ Base model berhasil dimuat.")
-
-        # Langkah 3: Menerapkan adapter LoRA di atas base model
-        print(f"Menerapkan adapter LoRA dari '{ADAPTER_PATH}'...")
+        
+        # Menggabungkan base model dengan adapter LoRA
+        print("Menggabungkan model dengan adapter LoRA...")
         model = PeftModel.from_pretrained(base_model, ADAPTER_PATH)
-        print("✅ Adapter LoRA berhasil diterapkan.")
-
-        # Langkah 4: Memuat tokenizer dari direktori adapter
-        print(f"Memuat tokenizer dari '{ADAPTER_PATH}'...")
-        tokenizer = AutoTokenizer.from_pretrained(ADAPTER_PATH)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        print("✅ Tokenizer berhasil dimuat.")
-
-        print("🎉🎉🎉 Model dan tokenizer siap digunakan! 🎉🎉🎉")
+        
+        # Pindahkan seluruh model ke CPU dan set ke mode evaluasi
+        model.to(device)
+        model.eval()
+        
+        print("\n✅ Model berhasil dimuat dan siap menerima permintaan.")
 
     except Exception as e:
-        # Jika terjadi error, catat traceback lengkap ke log untuk dianalisis
-        print(f"❌ FATAL ERROR SAAT MEMUAT MODEL: {e}")
-        print(traceback.format_exc())
-        # Variabel model dibiarkan None, sehingga endpoint akan mengembalikan error 503
-        model = None
-        tokenizer = None
+        print(f"\n❌ FATAL ERROR: Gagal memuat model. Aplikasi tidak akan bisa melakukan inferensi.")
+        print(f"Error: {e}")
 
-# --- Definisi Model Request Body ---
+# --- 4. Mendefinisikan Model Request Body ---
+# Ini menentukan format JSON yang kita harapkan dari klien (misal: dari website Anda)
 class ChatRequest(BaseModel):
     prompt: str
-    max_new_tokens: int = 300
+    max_new_tokens: int = 512 # Nilai default jika tidak disediakan oleh klien
 
-# --- Endpoint Aplikasi ---
-@app.get("/", summary="Cek Status API")
+# --- 5. Membuat Endpoint API ---
+
+@app.get("/", tags=["General"])
 def read_root():
-    """Endpoint untuk memeriksa apakah API sedang berjalan."""
-    return {"status": "Qwen2 Chatbot API is running"}
+    """Endpoint root untuk mengecek apakah server API berjalan."""
+    return {"status": "ok", "message": "Selamat datang di Chatbot Sampah API!"}
 
-@app.post("/chat", summary="Hasilkan Respons Chat")
-async def generate_chat_response(request: ChatRequest):
+@app.post("/chat", tags=["Inference"])
+async def handle_chat(request: ChatRequest):
     """
-    Menerima prompt dari user dan menghasilkan respons dari model chatbot.
+    Endpoint utama untuk melakukan inferensi. Menerima prompt dan mengembalikan respons.
     """
-    # Jika model gagal dimuat saat startup, kembalikan error 503 Service Unavailable
-    if not model or not tokenizer:
-        raise HTTPException(
-            status_code=503,
-            detail="Model is not available or failed to load. Check Cloud Run logs for startup errors."
-        )
+    if model is None or tokenizer is None:
+        raise HTTPException(status_code=503, detail="Model sedang tidak tersedia atau gagal dimuat. Silakan cek log server.")
 
     try:
-        # Membuat template chat yang sesuai untuk model Qwen2
+        # Menyiapkan input untuk model sesuai dengan chat template
         messages = [{"role": "user", "content": request.prompt}]
-        prompt_template = tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True
+        prompt_chat_template = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
         )
 
-        # Tokenisasi input dan kirim ke perangkat tempat model berada (CPU)
-        inputs = tokenizer(prompt_template, return_tensors="pt").to(model.device)
+        inputs = tokenizer(prompt_chat_template, return_tensors="pt").to(model.device)
 
-        # Hasilkan respons dari model
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
                 max_new_tokens=request.max_new_tokens,
                 do_sample=True,
                 temperature=0.7,
-                top_p=0.9,
-                pad_token_id=tokenizer.pad_token_id,
-                eos_token_id=tokenizer.eos_token_id,
+                top_p=0.95,
+                pad_token_id=tokenizer.eos_token_id
             )
+        
+        # --- LOGIKA EKSTRAKSI JAWABAN YANG SUDAH DIPERBAIKI ---
+        
+        # 1. Dapatkan panjang prompt input dalam bentuk token
+        prompt_length = inputs.input_ids.shape[1]
+        
+        # 2. Ambil hanya token yang dihasilkan (setelah prompt)
+        response_ids = outputs[0][prompt_length:]
+        
+        # 3. Decode hanya token jawaban menjadi teks
+        assistant_response = tokenizer.decode(response_ids, skip_special_tokens=True).strip()
+        
+        # ----------------------------------------------------
 
-        # Decode output token menjadi teks
-        response_ids = outputs[0][inputs.input_ids.shape[-1]:]
-        response_text = tokenizer.decode(response_ids, skip_special_tokens=True).strip()
-
-        return {"response": response_text}
+        return {"response": assistant_response}
 
     except Exception as e:
-        # Menangkap error yang mungkin terjadi selama proses generasi
-        print(f"Error selama proses generasi: {e}")
-        raise HTTPException(status_code=500, detail=f"An error occurred during text generation: {str(e)}")
+        print(f"Error saat inferensi: {e}")
+        raise HTTPException(status_code=500, detail="Terjadi kesalahan internal saat memproses permintaan Anda.")
+
+# --- 6. Menjalankan Server (Untuk testing lokal) ---
+if __name__ == "__main__":
+    # Perintah ini akan menjalankan server di http://127.0.0.1:8000
+    # Gunakan 'uvicorn main:app --reload' di terminal untuk pengembangan
+    uvicorn.run(app, host="0.0.0.0", port=8000)
