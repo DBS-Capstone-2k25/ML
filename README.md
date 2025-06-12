@@ -68,12 +68,12 @@ Layanan ini menggunakan model YOLO untuk mendeteksi lokasi objek-objek sampah da
 ### 3. API Chatbot Sampah
 Layanan ini menyediakan antarmuka percakapan (chatbot) untuk menjawab pertanyaan pengguna terkait pengelolaan sampah, daur ulang, dan informasi relevan lainnya.
 
--   **Platform Host**: Hugging Face Spaces
+-   **Platform Host**: Google Cloud Run
 -   **Endpoint**: `POST /chat`
 -   **Request Body**: `application/json`
 -   **Contoh Penggunaan (`curl`)**:
     ```bash
-    curl -X POST "[https://mazzya06-chatbot.hf.space/chat](https://mazzya06-chatbot.hf.space/chat)" \
+    curl -X POST "[https://chatbot-qwen-1069990625306.asia-southeast2.run.app/docs](https://chatbot-qwen-1069990625306.asia-southeast2.run.app/docs)" \
          -H "accept: application/json" \
          -H "Content-Type: application/json" \
          -d '{"prompt": "Bagaimana cara mendaur ulang botol plastik?", "max_new_tokens": 100}'
@@ -96,7 +96,6 @@ Layanan ini menyediakan antarmuka percakapan (chatbot) untuk menjawab pertanyaan
     -   Model Bahasa (Qwen2-1.5B-Instruct)
 -   **Deployment**:
     -   Google Cloud Run
-    -   Hugging Face Spaces
     -   Docker
 
 ## 🚀 Replikasi Proyek (Setup Lokal)
@@ -158,4 +157,3 @@ Ikuti langkah-langkah berikut untuk menjalankan setiap layanan di lingkungan lok
 
 ### Deployment
 -   **Google Cloud Run**: Layanan di-containerize menggunakan Docker, di-push ke Google Artifact Registry, lalu di-deploy sebagai layanan Cloud Run.
--   **Hugging Face Spaces**: Cukup push kode Anda ke repositori Hugging Face Space, beserta file `requirements.txt` agar dependensi dapat diinstall secara otomatis.
